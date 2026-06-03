@@ -11,12 +11,8 @@ def main(page: ft.Page):
     page.bgcolor = ft.Colors.PURPLE_50
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
-    
-    # Configuración de tamaño de ventana para escritorio
     page.window.width = 1350
     page.window.height = 850
-    
-    # Definición del tema visual (colores morados y rosas)
     page.theme_mode = ft.ThemeMode.LIGHT
     page.theme = ft.Theme(
         color_scheme=ft.ColorScheme(
@@ -27,33 +23,23 @@ def main(page: ft.Page):
         ),
     )
 
-    # Variables globales de sesión y estado
     current_user = None
     conexion_db = None
     cursor_db = None
     selected_matricula = None
-    ruta_foto_seleccionada = ""  # Ruta temporal de la imagen elegida
-
-    # Creación de la carpeta local para guardar las fotos de perfil
+    ruta_foto_seleccionada = ""  
     CARPETA_FOTOS = "fotos_perfil"
     if not os.path.exists(CARPETA_FOTOS):
         os.makedirs(CARPETA_FOTOS)
-
-    # --- CONFIGURACIÓN E INICIALIZACIÓN DE LA BASE DE DATOS (TABLA ÚNICA) ---
     try:
-        # Conexión inicial al servidor MySQL
         conexion_db = mysql.connector.connect(
             host="localhost",
             user="root",
-            password="admin123"  # Cambia esto por tu contraseña local de MySQL
+            password="admin123"
         )
         cursor_db = conexion_db.cursor()
-
-        # Creación y selección de la base de datos
         cursor_db.execute("CREATE DATABASE IF NOT EXISTS sistema_alumnos")
         cursor_db.execute("USE sistema_alumnos")
-
-        # Tabla de usuarios para el sistema de Login/Registro
         cursor_db.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
                 id INT PRIMARY KEY AUTO_INCREMENT,
@@ -61,8 +47,6 @@ def main(page: ft.Page):
                 password_hash VARCHAR(255) NOT NULL
             )
         """)
-
-        # Tabla alumnos unificada (sin llaves foráneas)
         cursor_db.execute("""
             CREATE TABLE IF NOT EXISTS alumnos (
                 matricula VARCHAR(20) PRIMARY KEY,
@@ -78,8 +62,6 @@ def main(page: ft.Page):
                 foto_ruta VARCHAR(255)
             )
         """)
-
-        # Crear un usuario administrador por defecto si la tabla está vacía
         cursor_db.execute("SELECT COUNT(*) FROM usuarios")
         if cursor_db.fetchone()[0] == 0:
             salt = bcrypt.gensalt()
@@ -92,40 +74,30 @@ def main(page: ft.Page):
         print(f"Error de conexión inicial a MySQL: {e}")
         return
 
-    # --- FUNCIONES GENERALES DE APOYO (UX) ---
     def mostrar_mensaje(texto, color):
-        """Muestra una notificación SnackBar en la parte inferior."""
         snack = ft.SnackBar(content=ft.Text(texto, color=ft.Colors.WHITE), bgcolor=color, duration=3000)
         page.overlay.append(snack)
         snack.open = True
         page.update()
 
     def validar_curp(curp):
-        """Valida el formato básico de una CURP mexicana (18 caracteres)."""
         patron = r'^[A-Z]{4}\d{6}[A-Z]{6}\d{2}$'
         return bool(re.match(patron, curp.upper()))
 
     def validar_telefono(telefono):
-        """Valida que el teléfono contenga exactamente 10 dígitos."""
         return bool(re.match(r'^\d{10}$', telefono))
 
-    # --- INTERFAZ 1: LOGIN (CONTROL DE ACCESO) ---
     def mostrar_login():
-        """Renderiza la pantalla de autenticación."""
         page.controls.clear()
         page.scroll = None
         page.window.width = 480
         page.window.height = 600
         page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
         page.vertical_alignment = ft.MainAxisAlignment.CENTER
-
-        # Controles visuales del Login
         txt_usuario = ft.TextField(label="Usuario", width=320, prefix_icon=ft.Icons.PERSON, autofocus=True, border_color=ft.Colors.PURPLE_200, focused_border_color=ft.Colors.PURPLE)
         txt_password = ft.TextField(label="Contraseña", width=320, password=True, can_reveal_password=True, prefix_icon=ft.Icons.LOCK, border_color=ft.Colors.PURPLE_200, focused_border_color=ft.Colors.PURPLE)
         lbl_error = ft.Text("", color=ft.Colors.PINK_400, size=12)
-
         def iniciar_sesion(e):
-            """Verifica credenciales y da acceso al panel principal."""
             usuario = txt_usuario.value
             password = txt_password.value
             if not usuario or not password:
@@ -133,15 +105,12 @@ def main(page: ft.Page):
                 page.update()
                 return
             try:
-                # Buscar el hash de la contraseña en la BD
                 cursor_db.execute("SELECT password_hash FROM usuarios WHERE username = %s", (usuario,))
                 resultado = cursor_db.fetchone()
                 if resultado:
                     password_hash = resultado[0]
                     b_password = password.encode('utf-8')
                     b_hash = password_hash if isinstance(password_hash, bytes) else password_hash.encode('utf-8')
-
-                    # Validar contraseña encriptada
                     if bcrypt.checkpw(b_password, b_hash):
                         nonlocal current_user
                         current_user = usuario
@@ -152,8 +121,6 @@ def main(page: ft.Page):
             except Exception as ex:
                 lbl_error.value = f"Error: {str(ex)}"
                 page.update()
-
-        # Carta visual del formulario de Login
         login_card = ft.Container(
             content=ft.Column(
                 [
@@ -172,21 +139,15 @@ def main(page: ft.Page):
         )
         page.add(login_card)
         page.update()
-
-    # --- INTERFAZ 2: REGISTRO DE USUARIOS NUEVOS ---
     def mostrar_registro():
-        """Renderiza la pantalla para crear nuevas cuentas."""
         page.controls.clear()
         page.scroll = None
-        
-        # Controles visuales del Registro
         txt_nuevo_usuario = ft.TextField(label="Nuevo Usuario", width=320, prefix_icon=ft.Icons.PERSON, autofocus=True, border_color=ft.Colors.PURPLE_200, focused_border_color=ft.Colors.PURPLE)
         txt_nueva_pass = ft.TextField(label="Contraseña", width=320, password=True, can_reveal_password=True, prefix_icon=ft.Icons.LOCK, border_color=ft.Colors.PURPLE_200, focused_border_color=ft.Colors.PURPLE)
         txt_confirmar_pass = ft.TextField(label="Confirmar Contraseña", width=320, password=True, can_reveal_password=True, prefix_icon=ft.Icons.LOCK, border_color=ft.Colors.PURPLE_200, focused_border_color=ft.Colors.PURPLE)
         lbl_reg_error = ft.Text("", color=ft.Colors.PINK_400, size=12)
 
         def registrar_usuario(e):
-            """Valida y guarda el nuevo usuario con contraseña encriptada."""
             usuario = txt_nuevo_usuario.value
             password = txt_nueva_pass.value
             confirmar = txt_confirmar_pass.value
@@ -228,10 +189,7 @@ def main(page: ft.Page):
             )
         )
         page.update()
-
-    # --- INTERFAZ 3: PANEL DE CONTROL PRINCIPAL (CRUD) ---
     def mostrar_panel_principal():
-        """Renderiza el panel de gestión de alumnos."""
         page.controls.clear()
         page.scroll = ft.ScrollMode.ALWAYS 
         page.window.width = 1350
@@ -239,10 +197,8 @@ def main(page: ft.Page):
         page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
         page.vertical_alignment = ft.MainAxisAlignment.START
 
-        # Filtro global para permitir solo letras y acentos
         filtro_letras = ft.InputFilter(allow=True, regex_string=r"[a-zA-ZáéíóúÁÉÍÓÚñÑ ]", replacement_string="")
 
-        # --- DEFINICIÓN DE CONTROLES DEL FORMULARIO ---
         txt_matricula = ft.TextField(label="Matrícula *", width=220)
         txt_apellido_paterno = ft.TextField(label="Apellido Paterno *", input_filter=filtro_letras, width=220)
         txt_apellido_materno = ft.TextField(label="Apellido Materno *", input_filter=filtro_letras, width=220)
@@ -256,7 +212,6 @@ def main(page: ft.Page):
         txt_estado = ft.TextField(label="Estado *", input_filter=filtro_letras, width=220)
         txt_disciplina = ft.TextField(label="Disciplina Deportiva", input_filter=filtro_letras, width=220)
 
-        # Control visual de la foto de perfil
         IMG_DEFECTO = "https://cdn-icons-png.flaticon.com/512/3135/3135715.png"
         img_perfil = ft.Image(
             src=IMG_DEFECTO,
@@ -264,8 +219,6 @@ def main(page: ft.Page):
         )
 
         lbl_resultado = ft.Text("", size=12)
-        
-        # Contenedor para la tabla de registros con scroll
         contenedor_tabla = ft.Container(
             content=ft.Column(scroll=ft.ScrollMode.AUTO),
             height=280, bgcolor=ft.Colors.WHITE, border_radius=15, padding=20,
@@ -274,9 +227,7 @@ def main(page: ft.Page):
         
         txt_buscador = ft.TextField(label="Buscar por matrícula o apellido", width=350, prefix_icon=ft.Icons.SEARCH)
 
-        # --- LÓGICA DEL FilePicker ---
         def al_seleccionar_archivo(e: ft.FilePickerResultEvent):
-            """Maneja la selección de imagen."""
             nonlocal ruta_foto_seleccionada
             if e.files:
                 ext = os.path.splitext(e.files[0].path)[1].lower()
@@ -291,9 +242,7 @@ def main(page: ft.Page):
         file_picker = ft.FilePicker(on_result=al_seleccionar_archivo)
         page.overlay.append(file_picker)
 
-        # --- FUNCIONES DE LÓGICA CRUD ---
         def limpiar_formulario(e):
-            """Restablece todos los campos del formulario."""
             nonlocal selected_matricula, ruta_foto_seleccionada
             txt_matricula.value = ""
             txt_matricula.disabled = False
@@ -314,7 +263,6 @@ def main(page: ft.Page):
             page.update()
 
         def cargar_alumnos(busqueda=""):
-            """Consulta la BD y renderiza la tabla de alumnos."""
             contenedor_tabla.content.controls.clear()
             try:
                 if busqueda:
@@ -345,7 +293,6 @@ def main(page: ft.Page):
                         )
                     )
                 else:
-                    # Crear encabezados estáticos alineados
                     encabezados = ft.Container(
                         content=ft.Row([
                             ft.Text("Foto", weight=ft.FontWeight.BOLD, size=13, color=ft.Colors.PURPLE_700, width=60),
@@ -362,7 +309,6 @@ def main(page: ft.Page):
                     contenedor_tabla.content.controls.append(encabezados)
                     contenedor_tabla.content.controls.append(ft.Divider(color=ft.Colors.PURPLE_100, height=1))
                     
-                    # Generar filas dinámicas
                     for reg in alumnos:
                         def crear_fila(alumno_data):
                             def editar_click(e):
@@ -387,7 +333,7 @@ def main(page: ft.Page):
                                     ruta_foto_seleccionada = ""
                                     img_perfil.src = IMG_DEFECTO
                                 
-                                lbl_resultado.value = f"✏️ Editando: {alumno_data[0]}"
+                                lbl_resultado.value = f"Editando: {alumno_data[0]}"
                                 page.update()
                             
                             def eliminar_click(e):
@@ -400,7 +346,7 @@ def main(page: ft.Page):
 
                                     cursor_db.execute("DELETE FROM alumnos WHERE matricula = %s", (alumno_data[0],))
                                     conexion_db.commit()
-                                    mostrar_mensaje(f"🗑️ Registro eliminado", ft.Colors.PINK_400)
+                                    mostrar_mensaje(f"Registro eliminado", ft.Colors.PINK_400)
                                     cargar_alumnos(txt_buscador.value)
                                     limpiar_formulario(None)
                                     dialogo.open = False
@@ -441,15 +387,13 @@ def main(page: ft.Page):
             except Exception as ex:
                 print(f"Error al cargar la lista: {ex}")
             
-            # Forzamos actualización exclusiva del contenedor secundario y luego de la página
             contenedor_tabla.update()
             page.update()
 
         def guardar_alumno(e):
-            """Inserta un nuevo alumno."""
             nonlocal ruta_foto_seleccionada
             if not all([txt_matricula.value, txt_apellido_paterno.value, txt_apellido_materno.value, txt_nombres.value, txt_curp.value, txt_especialidad.value, txt_telefono.value, txt_ciudad.value, txt_estado.value]):
-                mostrar_mensaje("⚠️ Campos obligatorios (*)", ft.Colors.PINK_400)
+                mostrar_mensaje("Campos obligatorios (*)", ft.Colors.PINK_400)
                 return
             if not validar_curp(txt_curp.value) or not validar_telefono(txt_telefono.value):
                 mostrar_mensaje("Valide CURP y formato de Teléfono", ft.Colors.PINK_400)
@@ -468,17 +412,16 @@ def main(page: ft.Page):
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (txt_matricula.value.upper(), txt_apellido_paterno.value.upper(), txt_apellido_materno.value.upper(), txt_nombres.value.upper(), txt_curp.value.upper(), txt_especialidad.value.upper(), txt_telefono.value, txt_ciudad.value.upper(), txt_estado.value.upper(), txt_disciplina.value.upper() if txt_disciplina.value else None, ruta_final_foto))
                 conexion_db.commit()
-                mostrar_mensaje("✅ Registro guardado", ft.Colors.PURPLE)
+                mostrar_mensaje("Registro guardado", ft.Colors.PURPLE)
                 limpiar_formulario(None)
                 cargar_alumnos(txt_buscador.value)
             except Exception as ex:
                 mostrar_mensaje(f"Error: La matrícula o CURP ya existen.", ft.Colors.PINK_400)
 
         def actualizar_alumno(e):
-            """Actualiza el alumno seleccionado."""
             nonlocal selected_matricula, ruta_foto_seleccionada
             if not selected_matricula or not txt_estado.value:
-                mostrar_mensaje("⚠️ Selecciona un registro", ft.Colors.PINK_400)
+                mostrar_mensaje("Selecciona un registro", ft.Colors.PINK_400)
                 return
             if not validar_curp(txt_curp.value) or not validar_telefono(txt_telefono.value):
                 mostrar_mensaje("Valide los formatos obligatorios", ft.Colors.PINK_400)
@@ -497,7 +440,7 @@ def main(page: ft.Page):
                     WHERE matricula=%s
                 """, (txt_apellido_paterno.value.upper(), txt_apellido_materno.value.upper(), txt_nombres.value.upper(), txt_curp.value.upper(), txt_especialidad.value.upper(), txt_telefono.value, txt_ciudad.value.upper(), txt_estado.value.upper(), txt_disciplina.value.upper() if txt_disciplina.value else None, ruta_final_foto, selected_matricula))
                 conexion_db.commit()
-                mostrar_mensaje("✏️ Registro actualizado", ft.Colors.PURPLE)
+                mostrar_mensaje("Registro actualizado", ft.Colors.PURPLE)
                 limpiar_formulario(None)
                 cargar_alumnos(txt_buscador.value)
             except Exception as ex:
@@ -507,10 +450,7 @@ def main(page: ft.Page):
             cursor_db.close()
             conexion_db.close()
             sys.exit()
-
         txt_buscador.on_change = lambda _: cargar_alumnos(txt_buscador.value)
-
-        # --- CONSTRUCCIÓN DEL LAYOUT ---
         header = ft.Container(
             content=ft.Row([
                 ft.Row([ft.Icon(ft.Icons.SCHOOL, color=ft.Colors.WHITE), ft.Text("Sistema de Gestión de Alumnos", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)]),
