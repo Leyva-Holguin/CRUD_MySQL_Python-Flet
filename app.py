@@ -10,11 +10,8 @@ def main(page: ft.Page):
     page.bgcolor = ft.Colors.PURPLE_50
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
-    
-    # Configuración de tamaño de ventana
     page.window.width = 1300
     page.window.height = 850
-    
     page.theme_mode = ft.ThemeMode.LIGHT
     page.theme = ft.Theme(
         color_scheme=ft.ColorScheme(
@@ -29,14 +26,11 @@ def main(page: ft.Page):
     conexion_db = None
     cursor_db = None
     selected_matricula = None
-    ruta_foto_seleccionada = ""  # Almacena la ruta temporal de la foto
-
-    # Carpeta local segura para almacenar copias de las fotos de perfil
+    ruta_foto_seleccionada = ""
+    
     CARPETA_FOTOS = "fotos_perfil"
     if not os.path.exists(CARPETA_FOTOS):
         os.makedirs(CARPETA_FOTOS)
-
-    # --- CONFIGURACIÓN E INICIALIZACIÓN DE LA BASE DE DATOS ---
     try:
         conexion_db = mysql.connector.connect(
             host="localhost",
