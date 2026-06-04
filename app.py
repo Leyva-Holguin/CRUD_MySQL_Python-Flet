@@ -1,11 +1,16 @@
+import asyncio
 import flet as ft
 import mysql.connector
+from mysql.connector import Error
 import bcrypt
 import re
 import os
 import shutil
+import hashlib
+from datetime import datetime
 
-def main(page: ft.Page):
+
+async def main(page: ft.Page):
     page.title = "Sistema de Gestión de Alumnos"
     page.bgcolor = ft.Colors.PURPLE_50
     page.theme_mode = ft.ThemeMode.LIGHT
@@ -27,54 +32,111 @@ def main(page: ft.Page):
     if not os.path.exists(CARPETA_FOTOS):
         os.makedirs(CARPETA_FOTOS)
 
-    # FilePicker global - registrado una sola vez en page.overlay al inicio
-    global_file_picker = ft.FilePicker()
-    page.overlay.append(global_file_picker)
+    # ── Vista contenedora (nunca se elimina del árbol) ─────────────────────
+    vista_container = ft.Container(expand=True)
+    page.add(vista_container)
+    page.update()
 
-    # ── Base de datos ────────────────────────────────────────────────────────
+    # ── Clase para manejo de conexión a Base de Datos ──────────────────────
+    class DatabaseManager:
+        def __init__(self):
+            self.connection = None
+            self.config = {
+                'host': 'localhost',
+                'user': 'root',
+                'password': 'admin123',
+                'database': 'sistema_alumnos'
+            }
+
+        def connect(self):
+            try:
+                if self.connection is None or not self.connection.is_connected():
+                    self.connection = mysql.connector.connect(**self.config)
+                return self.connection
+            except Error as e:
+                print(f"Error de conexión: {e}")
+                return None
+
+        def execute_query(self, query, params=None):
+            cursor = None
+            try:
+                conn = self.connect()
+                if conn:
+                    cursor = conn.cursor()
+                    cursor.execute(query, params or ())
+                    if query.strip().upper().startswith('SELECT'):
+                        return cursor.fetchall()
+                    else:
+                        conn.commit()
+                        return cursor.rowcount
+            except Error as e:
+                print(f"Error en consulta: {e}")
+                if self.connection:
+                    self.connection.rollback()
+                raise e
+            finally:
+                if cursor:
+                    cursor.close()
+            return None
+
+        def close(self):
+            if self.connection and self.connection.is_connected():
+                self.connection.close()
+                self.connection = None
+
+        def __enter__(self):
+            self.connect()
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            self.close()
+
+    # ── Inicializar base de datos ──────────────────────────────────────────
     try:
-        conexion_db = mysql.connector.connect(
-            host="localhost", user="root", password="admin123"
+        temp_conn = mysql.connector.connect(
+            host='localhost', user='root', password='admin123'
         )
-        cursor_db = conexion_db.cursor()
-        cursor_db.execute("CREATE DATABASE IF NOT EXISTS sistema_alumnos")
-        cursor_db.execute("USE sistema_alumnos")
-        cursor_db.execute("""
-            CREATE TABLE IF NOT EXISTS usuarios (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                username VARCHAR(50) UNIQUE NOT NULL,
-                password_hash VARCHAR(255) NOT NULL
-            )
-        """)
-        cursor_db.execute("""
-            CREATE TABLE IF NOT EXISTS alumnos (
-                matricula VARCHAR(20) PRIMARY KEY,
-                apellido_paterno VARCHAR(50) NOT NULL,
-                apellido_materno VARCHAR(50) NOT NULL,
-                nombre VARCHAR(50) NOT NULL,
-                curp VARCHAR(18) UNIQUE NOT NULL,
-                especialidad VARCHAR(100) NOT NULL,
-                telefono VARCHAR(10) NOT NULL,
-                ciudad_origen VARCHAR(100) NOT NULL,
-                estado VARCHAR(50) NOT NULL,
-                disciplina VARCHAR(100),
-                foto_ruta VARCHAR(255)
-            )
-        """)
-        cursor_db.execute("SELECT COUNT(*) FROM usuarios")
-        if cursor_db.fetchone()[0] == 0:
-            salt = bcrypt.gensalt()
-            ph   = bcrypt.hashpw("admin123".encode(), salt)
-            cursor_db.execute(
-                "INSERT INTO usuarios (username, password_hash) VALUES (%s, %s)",
-                ("admin", ph)
-            )
-        conexion_db.commit()
+        temp_cursor = temp_conn.cursor()
+        temp_cursor.execute("CREATE DATABASE IF NOT EXISTS sistema_alumnos")
+        temp_cursor.close()
+        temp_conn.close()
+
+        with DatabaseManager() as db_init:
+            db_init.execute_query("""
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    username VARCHAR(50) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL
+                )
+            """)
+            db_init.execute_query("""
+                CREATE TABLE IF NOT EXISTS alumnos (
+                    matricula VARCHAR(20) PRIMARY KEY,
+                    apellido_paterno VARCHAR(50) NOT NULL,
+                    apellido_materno VARCHAR(50) NOT NULL,
+                    nombre VARCHAR(50) NOT NULL,
+                    curp VARCHAR(18) UNIQUE NOT NULL,
+                    especialidad VARCHAR(100) NOT NULL,
+                    telefono VARCHAR(10) NOT NULL,
+                    ciudad_origen VARCHAR(100) NOT NULL,
+                    estado VARCHAR(50) NOT NULL,
+                    disciplina VARCHAR(100),
+                    foto_ruta VARCHAR(255)
+                )
+            """)
+            result = db_init.execute_query("SELECT COUNT(*) FROM usuarios")
+            if result and result[0][0] == 0:
+                salt = bcrypt.gensalt()
+                ph = bcrypt.hashpw("admin123".encode(), salt)
+                db_init.execute_query(
+                    "INSERT INTO usuarios (username, password_hash) VALUES (%s, %s)",
+                    ("admin", ph)
+                )
     except Exception as e:
-        print(f"Error de conexión a MySQL: {e}")
+        print(f"Error inicializando BD: {e}")
         return
 
-    # ── Helpers ──────────────────────────────────────────────────────────────
+    # ── Helpers ────────────────────────────────────────────────────────────
     def mostrar_mensaje(texto, color):
         snack = ft.SnackBar(
             content=ft.Text(texto, color=ft.Colors.WHITE),
@@ -88,6 +150,29 @@ def main(page: ft.Page):
 
     def validar_telefono(tel):
         return bool(re.match(r'^\d{10}$', tel))
+
+    def manejar_foto(ruta_origen, matricula):
+        if not ruta_origen or not os.path.exists(ruta_origen):
+            return None
+        ext = os.path.splitext(ruta_origen)[1].lower()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        with open(ruta_origen, 'rb') as f:
+            file_hash = hashlib.md5(f.read()).hexdigest()[:8]
+        nombre = f"{matricula}_{timestamp}_{file_hash}{ext}"
+        destino = os.path.join(CARPETA_FOTOS, nombre)
+        shutil.copy2(ruta_origen, destino)
+        return destino
+
+    # ── Navegación ─────────────────────────────────────────────────────────
+    def navegar(nuevo_control, ancho, alto, h_align, v_align, scroll):
+        vista_container.content = nuevo_control
+        vista_container.expand  = True
+        page.window.width       = ancho
+        page.window.height      = alto
+        page.horizontal_alignment = h_align
+        page.vertical_alignment   = v_align
+        page.scroll = scroll
+        page.update()
 
     # ════════════════════════════════════════════════════════════════════════
     #  LOGIN
@@ -118,12 +203,15 @@ def main(page: ft.Page):
                 lbl_error.value = "Complete todos los campos"
                 page.update(); return
             try:
-                cursor_db.execute(
+                temp_db = DatabaseManager()
+                result = temp_db.execute_query(
                     "SELECT password_hash FROM usuarios WHERE username=%s", (u,)
                 )
-                row = cursor_db.fetchone()
-                if row:
-                    bh = row[0] if isinstance(row[0], bytes) else row[0].encode()
+                temp_db.close()
+                if result:
+                    bh = result[0][0]
+                    if not isinstance(bh, bytes):
+                        bh = bh.encode()
                     if bcrypt.checkpw(p.encode(), bh):
                         current_user = u
                         ir_panel()
@@ -143,12 +231,9 @@ def main(page: ft.Page):
                         weight=ft.FontWeight.W_500, color=ft.Colors.PURPLE_400),
                 ft.Divider(height=20, color=ft.Colors.PURPLE_100),
                 txt_usuario, txt_password, lbl_error,
-                ft.Button(
-                    "INGRESAR", on_click=iniciar_sesion,
-                    width=320, height=45,
-                    bgcolor=ft.Colors.PURPLE,
-                    color=ft.Colors.WHITE,
-                ),
+                ft.Button("INGRESAR", on_click=iniciar_sesion,
+                          width=320, height=45,
+                          bgcolor=ft.Colors.PURPLE, color=ft.Colors.WHITE),
                 ft.TextButton("Crear cuenta nueva",
                               on_click=lambda _: ir_registro()),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
@@ -157,54 +242,58 @@ def main(page: ft.Page):
             shadow=ft.BoxShadow(blur_radius=15, color=SHADOW_COLOR)
         )
 
-        page.controls.clear()
-        page.overlay.clear()
-        page.window.width  = 480
-        page.window.height = 640
-        page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
-        page.vertical_alignment   = ft.MainAxisAlignment.CENTER
-        page.scroll = None
-        page.add(card)
-        page.update()
+        navegar(
+            ft.Column([card], horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                      alignment=ft.MainAxisAlignment.CENTER, expand=True),
+            480, 640,
+            ft.CrossAxisAlignment.CENTER,
+            ft.MainAxisAlignment.CENTER,
+            None
+        )
 
     # ════════════════════════════════════════════════════════════════════════
     #  REGISTRO
     # ════════════════════════════════════════════════════════════════════════
     def ir_registro():
-        txt_u   = ft.TextField(label="Nuevo Usuario", width=320,
-                               prefix_icon=ft.Icons.PERSON, autofocus=True,
-                               border_color=ft.Colors.PURPLE_200,
-                               focused_border_color=ft.Colors.PURPLE)
-        txt_p   = ft.TextField(label="Contraseña", width=320,
-                               password=True, can_reveal_password=True,
-                               prefix_icon=ft.Icons.LOCK,
-                               border_color=ft.Colors.PURPLE_200,
-                               focused_border_color=ft.Colors.PURPLE)
-        txt_c   = ft.TextField(label="Confirmar Contraseña", width=320,
-                               password=True, can_reveal_password=True,
-                               prefix_icon=ft.Icons.LOCK,
-                               border_color=ft.Colors.PURPLE_200,
-                               focused_border_color=ft.Colors.PURPLE)
+        txt_u = ft.TextField(label="Nuevo Usuario", width=320,
+                             prefix_icon=ft.Icons.PERSON, autofocus=True,
+                             border_color=ft.Colors.PURPLE_200,
+                             focused_border_color=ft.Colors.PURPLE)
+        txt_p = ft.TextField(label="Contraseña", width=320,
+                             password=True, can_reveal_password=True,
+                             prefix_icon=ft.Icons.LOCK,
+                             border_color=ft.Colors.PURPLE_200,
+                             focused_border_color=ft.Colors.PURPLE)
+        txt_c = ft.TextField(label="Confirmar Contraseña", width=320,
+                             password=True, can_reveal_password=True,
+                             prefix_icon=ft.Icons.LOCK,
+                             border_color=ft.Colors.PURPLE_200,
+                             focused_border_color=ft.Colors.PURPLE)
         lbl_err = ft.Text("", color=ft.Colors.PINK_400, size=12)
 
         def registrar(e):
             u, p, c = txt_u.value.strip(), txt_p.value, txt_c.value
             if not u or not p:
-                lbl_err.value = "Complete todos los campos"; page.update(); return
+                lbl_err.value = "Complete todos los campos"
+                page.update(); return
             if p != c:
-                lbl_err.value = "Las contraseñas no coinciden"; page.update(); return
+                lbl_err.value = "Las contraseñas no coinciden"
+                page.update(); return
             try:
                 salt = bcrypt.gensalt()
                 ph   = bcrypt.hashpw(p.encode(), salt)
-                cursor_db.execute(
+                temp_db = DatabaseManager()
+                temp_db.execute_query(
                     "INSERT INTO usuarios (username, password_hash) VALUES (%s,%s)",
                     (u, ph)
                 )
-                conexion_db.commit()
+                temp_db.close()
                 mostrar_mensaje(f"Usuario '{u}' creado", ft.Colors.PURPLE)
                 ir_login()
             except mysql.connector.IntegrityError:
                 lbl_err.value = "El usuario ya existe"; page.update()
+            except Exception as ex:
+                lbl_err.value = f"Error: {ex}"; page.update()
 
         card = ft.Container(
             content=ft.Column([
@@ -213,12 +302,9 @@ def main(page: ft.Page):
                         weight=ft.FontWeight.BOLD, color=ft.Colors.PURPLE_700),
                 ft.Divider(height=20, color=ft.Colors.PURPLE_100),
                 txt_u, txt_p, txt_c, lbl_err,
-                ft.Button(
-                    "Registrar", on_click=registrar,
-                    width=320, height=45,
-                    bgcolor=ft.Colors.PURPLE,
-                    color=ft.Colors.WHITE,
-                ),
+                ft.Button("Registrar", on_click=registrar,
+                          width=320, height=45,
+                          bgcolor=ft.Colors.PURPLE, color=ft.Colors.WHITE),
                 ft.TextButton("Volver al Login", on_click=lambda _: ir_login()),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
             width=420, padding=40,
@@ -226,15 +312,14 @@ def main(page: ft.Page):
             shadow=ft.BoxShadow(blur_radius=15, color=SHADOW_COLOR)
         )
 
-        page.controls.clear()
-        page.overlay.clear()
-        page.window.width  = 480
-        page.window.height = 680
-        page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
-        page.vertical_alignment   = ft.MainAxisAlignment.CENTER
-        page.scroll = None
-        page.add(card)
-        page.update()
+        navegar(
+            ft.Column([card], horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                      alignment=ft.MainAxisAlignment.CENTER, expand=True),
+            480, 680,
+            ft.CrossAxisAlignment.CENTER,
+            ft.MainAxisAlignment.CENTER,
+            None
+        )
 
     # ════════════════════════════════════════════════════════════════════════
     #  PANEL PRINCIPAL
@@ -280,9 +365,9 @@ def main(page: ft.Page):
             ft.DropdownOption("NINGUNA"),
         ])
 
-        IMG_DEFECTO = "https://cdn-icons-png.flaticon.com/512/3135/3135715.png"
-        img_perfil  = ft.Image(src=IMG_DEFECTO, width=110, height=110,
-                               fit="cover", border_radius=55)
+        IMG_DEFECTO   = "https://cdn-icons-png.flaticon.com/512/3135/3135715.png"
+        img_perfil    = ft.Image(src=IMG_DEFECTO, width=110, height=110,
+                                 fit="cover", border_radius=55)
         lbl_resultado = ft.Text("", size=12, color=ft.Colors.PURPLE_400)
 
         contenedor_tabla = ft.Container(
@@ -298,25 +383,34 @@ def main(page: ft.Page):
             width=350, prefix_icon=ft.Icons.SEARCH
         )
 
-        # ── FilePicker ───────────────────────────────────────────────────────
-        # CORRECCIÓN: el evento se pasa directo al constructor
-        def al_seleccionar_archivo(e):
+        # ══════════════════════════════════════════════════════════════════
+        # NUEVO PATRÓN para Flet 0.85+:
+        # FilePicker se crea DENTRO del handler async y se llama con await.
+        # No requiere page.overlay ni page.add() previo.
+        # ══════════════════════════════════════════════════════════════════
+        async def abrir_selector_foto(e):
             nonlocal ruta_foto_seleccionada
-            if e.files:
-                ext = os.path.splitext(e.files[0].path)[1].lower()
-                if ext in ['.jpg', '.jpeg', '.png', '.bmp']:
-                    ruta_foto_seleccionada = e.files[0].path
-                    img_perfil.src = ruta_foto_seleccionada
-                    img_perfil.update()
-                    mostrar_mensaje("Foto seleccionada", ft.Colors.PURPLE)
-                else:
-                    mostrar_mensaje("Formato inválido (.png .jpg .jpeg)",
-                                    ft.Colors.PINK_400)
+            try:
+                # Crear una instancia nueva cada vez y llamar con await
+                files = await ft.FilePicker().pick_files(
+                    allow_multiple=False,
+                    file_type="image"
+                )
+                if files:
+                    ext = os.path.splitext(files[0].path)[1].lower()
+                    if ext in ['.jpg', '.jpeg', '.png', '.bmp']:
+                        ruta_foto_seleccionada = files[0].path
+                        img_perfil.src = ruta_foto_seleccionada
+                        img_perfil.update()
+                        mostrar_mensaje("✔ Foto seleccionada", ft.Colors.PURPLE)
+                    else:
+                        mostrar_mensaje("Formato inválido (.png .jpg .jpeg .bmp)",
+                                        ft.Colors.PINK_400)
+            except Exception as ex:
+                print(f"Error al seleccionar foto: {ex}")
+                mostrar_mensaje(f"Error al abrir selector: {ex}", ft.Colors.PINK_400)
 
-        file_picker = global_file_picker
-        file_picker.on_result = al_seleccionar_archivo
-
-        # ── Limpiar ──────────────────────────────────────────────────────────
+        # ── Limpiar ──────────────────────────────────────────────────────
         def limpiar(e=None):
             nonlocal selected_matricula, ruta_foto_seleccionada
             for tf in [txt_matricula, txt_apellido_paterno, txt_apellido_materno,
@@ -333,12 +427,13 @@ def main(page: ft.Page):
             txt_matricula.focus()
             page.update()
 
-        # ── Cargar tabla ─────────────────────────────────────────────────────
+        # ── Cargar tabla ──────────────────────────────────────────────────
         def cargar_alumnos(busqueda=""):
             contenedor_tabla.content.controls.clear()
             try:
+                temp_db = DatabaseManager()
                 if busqueda:
-                    cursor_db.execute("""
+                    alumnos = temp_db.execute_query("""
                         SELECT matricula, apellido_paterno, apellido_materno,
                                nombre, curp, telefono, especialidad,
                                estado, disciplina, foto_ruta, ciudad_origen
@@ -347,13 +442,13 @@ def main(page: ft.Page):
                         ORDER BY matricula
                     """, (f"%{busqueda}%", f"%{busqueda}%"))
                 else:
-                    cursor_db.execute("""
+                    alumnos = temp_db.execute_query("""
                         SELECT matricula, apellido_paterno, apellido_materno,
                                nombre, curp, telefono, especialidad,
                                estado, disciplina, foto_ruta, ciudad_origen
                         FROM alumnos ORDER BY matricula
                     """)
-                alumnos = cursor_db.fetchall()
+                temp_db.close()
 
                 if not alumnos:
                     contenedor_tabla.content.controls.append(
@@ -364,7 +459,6 @@ def main(page: ft.Page):
                         )
                     )
                 else:
-                    # Encabezados
                     contenedor_tabla.content.controls.append(
                         ft.Container(
                             content=ft.Row([
@@ -391,7 +485,6 @@ def main(page: ft.Page):
                     contenedor_tabla.content.controls.append(
                         ft.Divider(color=ft.Colors.PURPLE_100, height=1)
                     )
-
                     for reg in alumnos:
                         def crear_fila(a):
                             def editar(e):
@@ -418,41 +511,26 @@ def main(page: ft.Page):
                                 page.update()
 
                             def eliminar(e):
-                                dialogo = ft.AlertDialog(
-                                    modal=True,
-                                    title=ft.Text("Confirmar eliminación"),
-                                    content=ft.Text(
-                                        f"¿Eliminar permanentemente al alumno {a[0]}?"
-                                    ),
-                                    actions=[
-                                        ft.TextButton("Cancelar",
-                                            on_click=lambda _: cerrar()),
-                                        ft.Button(
-                                            "Eliminar",
-                                            on_click=lambda _: confirmar(),
-                                            bgcolor=ft.Colors.PINK_400,
-                                            color=ft.Colors.WHITE,
-                                        ),
-                                    ],
-                                )
                                 def cerrar():
                                     dialogo.open = False
                                     page.update()
 
                                 def confirmar():
                                     try:
-                                        cursor_db.execute(
+                                        temp_db = DatabaseManager()
+                                        result = temp_db.execute_query(
                                             "SELECT foto_ruta FROM alumnos WHERE matricula=%s",
                                             (a[0],)
                                         )
-                                        rf = cursor_db.fetchone()
-                                        if rf and rf[0] and os.path.exists(rf[0]):
-                                            try: os.remove(rf[0])
+                                        if result and result[0][0] and \
+                                           os.path.exists(result[0][0]):
+                                            try: os.remove(result[0][0])
                                             except: pass
-                                        cursor_db.execute(
-                                            "DELETE FROM alumnos WHERE matricula=%s", (a[0],)
+                                        temp_db.execute_query(
+                                            "DELETE FROM alumnos WHERE matricula=%s",
+                                            (a[0],)
                                         )
-                                        conexion_db.commit()
+                                        temp_db.close()
                                     except Exception as ex:
                                         print(f"Error al eliminar: {ex}")
                                     dialogo.open = False
@@ -462,6 +540,20 @@ def main(page: ft.Page):
                                     cargar_alumnos(txt_buscador.value)
                                     limpiar()
 
+                                dialogo = ft.AlertDialog(
+                                    modal=True,
+                                    title=ft.Text("Confirmar eliminación"),
+                                    content=ft.Text(
+                                        f"¿Eliminar permanentemente al alumno {a[0]}?"),
+                                    actions=[
+                                        ft.TextButton("Cancelar",
+                                                      on_click=lambda _: cerrar()),
+                                        ft.Button("Eliminar",
+                                                  on_click=lambda _: confirmar(),
+                                                  bgcolor=ft.Colors.PINK_400,
+                                                  color=ft.Colors.WHITE),
+                                    ],
+                                )
                                 page.overlay.append(dialogo)
                                 dialogo.open = True
                                 page.update()
@@ -501,7 +593,7 @@ def main(page: ft.Page):
             contenedor_tabla.update()
             page.update()
 
-        # ── Guardar ──────────────────────────────────────────────────────────
+        # ── Guardar ──────────────────────────────────────────────────────
         def guardar(e):
             nonlocal ruta_foto_seleccionada
             if not all([txt_matricula.value, txt_apellido_paterno.value,
@@ -519,14 +611,11 @@ def main(page: ft.Page):
 
             ruta_final = None
             if ruta_foto_seleccionada and os.path.exists(ruta_foto_seleccionada):
-                ext  = os.path.splitext(ruta_foto_seleccionada)[1]
-                dest = os.path.join(CARPETA_FOTOS,
-                                    f"{txt_matricula.value.upper()}{ext}")
-                shutil.copy(ruta_foto_seleccionada, dest)
-                ruta_final = dest
-
+                ruta_final = manejar_foto(ruta_foto_seleccionada,
+                                          txt_matricula.value.upper())
             try:
-                cursor_db.execute("""
+                temp_db = DatabaseManager()
+                temp_db.execute_query("""
                     INSERT INTO alumnos (matricula, apellido_paterno, apellido_materno,
                         nombre, curp, especialidad, telefono, ciudad_origen,
                         estado, disciplina, foto_ruta)
@@ -544,16 +633,17 @@ def main(page: ft.Page):
                     txt_disciplina.value if txt_disciplina.value else None,
                     ruta_final
                 ))
-                conexion_db.commit()
-                mostrar_mensaje("✔ Alumno registrado correctamente",
-                                ft.Colors.PURPLE)
+                temp_db.close()
+                mostrar_mensaje("✔ Alumno registrado correctamente", ft.Colors.PURPLE)
                 limpiar()
                 cargar_alumnos(txt_buscador.value)
-            except Exception:
+            except mysql.connector.IntegrityError:
                 mostrar_mensaje("Error: matrícula o CURP ya existen.",
                                 ft.Colors.PINK_400)
+            except Exception as ex:
+                mostrar_mensaje(f"Error al guardar: {ex}", ft.Colors.PINK_400)
 
-        # ── Actualizar ───────────────────────────────────────────────────────
+        # ── Actualizar ────────────────────────────────────────────────────
         def actualizar(e):
             nonlocal selected_matricula, ruta_foto_seleccionada
             if not selected_matricula:
@@ -573,13 +663,11 @@ def main(page: ft.Page):
             ruta_final = ruta_foto_seleccionada
             if (ruta_foto_seleccionada and os.path.exists(ruta_foto_seleccionada)
                     and CARPETA_FOTOS not in ruta_foto_seleccionada):
-                ext  = os.path.splitext(ruta_foto_seleccionada)[1]
-                dest = os.path.join(CARPETA_FOTOS, f"{selected_matricula}{ext}")
-                shutil.copy(ruta_foto_seleccionada, dest)
-                ruta_final = dest
+                ruta_final = manejar_foto(ruta_foto_seleccionada, selected_matricula)
 
             try:
-                cursor_db.execute("""
+                temp_db = DatabaseManager()
+                temp_db.execute_query("""
                     UPDATE alumnos SET
                         apellido_paterno=%s, apellido_materno=%s,
                         nombre=%s, curp=%s, especialidad=%s,
@@ -599,24 +687,19 @@ def main(page: ft.Page):
                     ruta_final,
                     selected_matricula
                 ))
-                conexion_db.commit()
-                mostrar_mensaje("✔ Alumno actualizado correctamente",
-                                ft.Colors.PURPLE)
+                temp_db.close()
+                mostrar_mensaje("✔ Alumno actualizado correctamente", ft.Colors.PURPLE)
                 limpiar()
                 cargar_alumnos(txt_buscador.value)
             except Exception as ex:
                 mostrar_mensaje(f"Error al actualizar: {ex}", ft.Colors.PINK_400)
 
         def salir(e):
-            try:
-                cursor_db.close()
-                conexion_db.close()
-            except: pass
             page.window.close()
 
         txt_buscador.on_change = lambda _: cargar_alumnos(txt_buscador.value)
 
-        # ── Layout ───────────────────────────────────────────────────────────
+        # ── Layout ────────────────────────────────────────────────────────
         header = ft.Container(
             content=ft.Row([
                 ft.Row([
@@ -640,8 +723,7 @@ def main(page: ft.Page):
             content=ft.Row([
                 ft.Column([
                     ft.Text("DATOS DEL ALUMNO", size=16,
-                            weight=ft.FontWeight.BOLD,
-                            color=ft.Colors.PURPLE_700),
+                            weight=ft.FontWeight.BOLD, color=ft.Colors.PURPLE_700),
                     ft.Row([txt_matricula, txt_apellido_paterno,
                             txt_apellido_materno], spacing=15),
                     ft.Row([txt_nombres, txt_curp, txt_especialidad], spacing=15),
@@ -649,30 +731,18 @@ def main(page: ft.Page):
                     ft.Row([txt_disciplina], spacing=15),
                     ft.Divider(height=5, color=ft.Colors.TRANSPARENT),
                     ft.Row([
-                        ft.Button(
-                            "💾 Guardar", on_click=guardar,
-                            width=130,
-                            bgcolor=ft.Colors.PURPLE,
-                            color=ft.Colors.WHITE,
-                        ),
-                        ft.Button(
-                            "✏ Actualizar", on_click=actualizar,
-                            width=130,
-                            bgcolor=ft.Colors.PURPLE_300,
-                            color=ft.Colors.WHITE,
-                        ),
-                        ft.Button(
-                            "🗑 Limpiar", on_click=limpiar,
-                            width=130,
-                            bgcolor=ft.Colors.PURPLE_100,
-                            color=ft.Colors.PURPLE_700,
-                        ),
-                        ft.Button(
-                            "⏻ Salir", on_click=salir,
-                            width=130,
-                            bgcolor=ft.Colors.PINK_400,
-                            color=ft.Colors.WHITE,
-                        ),
+                        ft.Button("💾 Guardar", on_click=guardar,
+                                  width=130, bgcolor=ft.Colors.PURPLE,
+                                  color=ft.Colors.WHITE),
+                        ft.Button("✏ Actualizar", on_click=actualizar,
+                                  width=130, bgcolor=ft.Colors.PURPLE_300,
+                                  color=ft.Colors.WHITE),
+                        ft.Button("🗑 Limpiar", on_click=limpiar,
+                                  width=130, bgcolor=ft.Colors.PURPLE_100,
+                                  color=ft.Colors.PURPLE_700),
+                        ft.Button("⏻ Salir", on_click=salir,
+                                  width=130, bgcolor=ft.Colors.PINK_400,
+                                  color=ft.Colors.WHITE),
                     ], spacing=10),
                     lbl_resultado,
                 ], spacing=12, expand=True),
@@ -681,8 +751,7 @@ def main(page: ft.Page):
 
                 ft.Column([
                     ft.Text("FOTO PERFIL", size=14,
-                            weight=ft.FontWeight.BOLD,
-                            color=ft.Colors.PURPLE_700),
+                            weight=ft.FontWeight.BOLD, color=ft.Colors.PURPLE_700),
                     ft.Container(
                         content=img_perfil,
                         border=ft.Border.all(2, ft.Colors.PURPLE_200),
@@ -691,10 +760,8 @@ def main(page: ft.Page):
                     ft.Button(
                         "Cargar Foto",
                         icon=ft.Icons.UPLOAD_FILE,
-                        on_click=lambda _: file_picker.pick_files(
-                            allow_multiple=False,
-                            file_type="image"
-                        ),
+                        # ✅ handler async directo — patrón oficial Flet 0.85+
+                        on_click=abrir_selector_foto,
                         bgcolor=ft.Colors.PURPLE_50,
                         color=ft.Colors.PURPLE,
                     ),
@@ -705,36 +772,30 @@ def main(page: ft.Page):
             shadow=ft.BoxShadow(blur_radius=10, color=SHADOW_COLOR)
         )
 
-        buscador_row = ft.Container(
-            content=ft.Row([txt_buscador],
-                           alignment=ft.MainAxisAlignment.END),
-            padding=5
-        )
-
-        # CORRECCIÓN: panel envuelto en Container con padding para evitar corte
         panel = ft.Container(
             content=ft.Column([
                 header,
                 form_card,
-                buscador_row,
+                ft.Container(
+                    content=ft.Row([txt_buscador],
+                                   alignment=ft.MainAxisAlignment.END),
+                    padding=5
+                ),
                 contenedor_tabla,
             ], spacing=15),
             padding=ft.Padding(left=20, right=20, top=15, bottom=15)
         )
 
-        page.controls.clear()
-        page.overlay.clear()
-        page.window.width  = 1350
-        page.window.height = 850
-        page.horizontal_alignment = ft.CrossAxisAlignment.START
-        page.vertical_alignment   = ft.MainAxisAlignment.START
-        page.scroll = "auto"
-        page.add(ft.Row([panel], expand=True))
-        page.update()
-
+        navegar(
+            ft.Row([panel], expand=True),
+            1350, 850,
+            ft.CrossAxisAlignment.START,
+            ft.MainAxisAlignment.START,
+            "auto"
+        )
         cargar_alumnos()
 
-    # ── Arranque ─────────────────────────────────────────────────────────────
+    # ── Arranque ──────────────────────────────────────────────────────────
     ir_login()
 
 
