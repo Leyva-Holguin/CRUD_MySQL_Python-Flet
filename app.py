@@ -27,6 +27,10 @@ def main(page: ft.Page):
     if not os.path.exists(CARPETA_FOTOS):
         os.makedirs(CARPETA_FOTOS)
 
+    # FilePicker global - registrado una sola vez en page.overlay al inicio
+    global_file_picker = ft.FilePicker()
+    page.overlay.append(global_file_picker)
+
     # ── Base de datos ────────────────────────────────────────────────────────
     try:
         conexion_db = mysql.connector.connect(
@@ -139,9 +143,12 @@ def main(page: ft.Page):
                         weight=ft.FontWeight.W_500, color=ft.Colors.PURPLE_400),
                 ft.Divider(height=20, color=ft.Colors.PURPLE_100),
                 txt_usuario, txt_password, lbl_error,
-                ft.Button("INGRESAR", on_click=iniciar_sesion,
-                          width=320, height=45,
-                          bgcolor=ft.Colors.PURPLE, color=ft.Colors.WHITE),
+                ft.Button(
+                    "INGRESAR", on_click=iniciar_sesion,
+                    width=320, height=45,
+                    bgcolor=ft.Colors.PURPLE,
+                    color=ft.Colors.WHITE,
+                ),
                 ft.TextButton("Crear cuenta nueva",
                               on_click=lambda _: ir_registro()),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
@@ -206,9 +213,12 @@ def main(page: ft.Page):
                         weight=ft.FontWeight.BOLD, color=ft.Colors.PURPLE_700),
                 ft.Divider(height=20, color=ft.Colors.PURPLE_100),
                 txt_u, txt_p, txt_c, lbl_err,
-                ft.Button("Registrar", on_click=registrar,
-                          width=320, height=45,
-                          bgcolor=ft.Colors.PURPLE, color=ft.Colors.WHITE),
+                ft.Button(
+                    "Registrar", on_click=registrar,
+                    width=320, height=45,
+                    bgcolor=ft.Colors.PURPLE,
+                    color=ft.Colors.WHITE,
+                ),
                 ft.TextButton("Volver al Login", on_click=lambda _: ir_login()),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
             width=420, padding=40,
@@ -289,6 +299,7 @@ def main(page: ft.Page):
         )
 
         # ── FilePicker ───────────────────────────────────────────────────────
+        # CORRECCIÓN: el evento se pasa directo al constructor
         def al_seleccionar_archivo(e):
             nonlocal ruta_foto_seleccionada
             if e.files:
@@ -302,7 +313,7 @@ def main(page: ft.Page):
                     mostrar_mensaje("Formato inválido (.png .jpg .jpeg)",
                                     ft.Colors.PINK_400)
 
-        file_picker = ft.FilePicker()
+        file_picker = global_file_picker
         file_picker.on_result = al_seleccionar_archivo
 
         # ── Limpiar ──────────────────────────────────────────────────────────
@@ -349,7 +360,7 @@ def main(page: ft.Page):
                         ft.Container(
                             content=ft.Text("No hay alumnos registrados",
                                             color=ft.Colors.GREY_500, size=14),
-                            alignment=ft.alignment.center, padding=40
+                            alignment=ft.Alignment(0, 0), padding=40
                         )
                     )
                 else:
@@ -416,10 +427,12 @@ def main(page: ft.Page):
                                     actions=[
                                         ft.TextButton("Cancelar",
                                             on_click=lambda _: cerrar()),
-                                        ft.Button("Eliminar",
+                                        ft.Button(
+                                            "Eliminar",
                                             on_click=lambda _: confirmar(),
                                             bgcolor=ft.Colors.PINK_400,
-                                            color=ft.Colors.WHITE),
+                                            color=ft.Colors.WHITE,
+                                        ),
                                     ],
                                 )
                                 def cerrar():
@@ -460,7 +473,7 @@ def main(page: ft.Page):
                             return ft.Container(
                                 content=ft.Row([
                                     ft.Container(content=mini_foto, width=60,
-                                                 alignment=ft.alignment.center_left),
+                                                 alignment=ft.Alignment(-1, 0)),
                                     ft.Text(str(a[0]), size=12, width=100),
                                     ft.Text(str(a[1]), size=12, width=110),
                                     ft.Text(str(a[2]), size=12, width=110),
@@ -636,18 +649,30 @@ def main(page: ft.Page):
                     ft.Row([txt_disciplina], spacing=15),
                     ft.Divider(height=5, color=ft.Colors.TRANSPARENT),
                     ft.Row([
-                        ft.Button("💾 Guardar",   on_click=guardar,
-                                  bgcolor=ft.Colors.PURPLE,
-                                  color=ft.Colors.WHITE, width=130),
-                        ft.Button("✏ Actualizar", on_click=actualizar,
-                                  bgcolor=ft.Colors.PURPLE_300,
-                                  color=ft.Colors.WHITE, width=130),
-                        ft.Button("🗑 Limpiar",   on_click=limpiar,
-                                  bgcolor=ft.Colors.PURPLE_100,
-                                  color=ft.Colors.PURPLE_700, width=130),
-                        ft.Button("⏻ Salir",      on_click=salir,
-                                  bgcolor=ft.Colors.PINK_400,
-                                  color=ft.Colors.WHITE, width=130),
+                        ft.Button(
+                            "💾 Guardar", on_click=guardar,
+                            width=130,
+                            bgcolor=ft.Colors.PURPLE,
+                            color=ft.Colors.WHITE,
+                        ),
+                        ft.Button(
+                            "✏ Actualizar", on_click=actualizar,
+                            width=130,
+                            bgcolor=ft.Colors.PURPLE_300,
+                            color=ft.Colors.WHITE,
+                        ),
+                        ft.Button(
+                            "🗑 Limpiar", on_click=limpiar,
+                            width=130,
+                            bgcolor=ft.Colors.PURPLE_100,
+                            color=ft.Colors.PURPLE_700,
+                        ),
+                        ft.Button(
+                            "⏻ Salir", on_click=salir,
+                            width=130,
+                            bgcolor=ft.Colors.PINK_400,
+                            color=ft.Colors.WHITE,
+                        ),
                     ], spacing=10),
                     lbl_resultado,
                 ], spacing=12, expand=True),
@@ -671,7 +696,7 @@ def main(page: ft.Page):
                             file_type="image"
                         ),
                         bgcolor=ft.Colors.PURPLE_50,
-                        color=ft.Colors.PURPLE
+                        color=ft.Colors.PURPLE,
                     ),
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                    spacing=10, width=170),
@@ -686,23 +711,25 @@ def main(page: ft.Page):
             padding=5
         )
 
-        panel = ft.Column([
-            header,
-            form_card,
-            buscador_row,
-            contenedor_tabla,
-        ], spacing=15)
+        # CORRECCIÓN: panel envuelto en Container con padding para evitar corte
+        panel = ft.Container(
+            content=ft.Column([
+                header,
+                form_card,
+                buscador_row,
+                contenedor_tabla,
+            ], spacing=15),
+            padding=ft.Padding(left=20, right=20, top=15, bottom=15)
+        )
 
-        # Agregar FilePicker al overlay ANTES de renderizar
         page.controls.clear()
         page.overlay.clear()
-        page.overlay.append(file_picker)
         page.window.width  = 1350
         page.window.height = 850
         page.horizontal_alignment = ft.CrossAxisAlignment.START
         page.vertical_alignment   = ft.MainAxisAlignment.START
-        page.scroll = "always"
-        page.add(panel)
+        page.scroll = "auto"
+        page.add(ft.Row([panel], expand=True))
         page.update()
 
         cargar_alumnos()
