@@ -402,24 +402,22 @@ async def main(page: ft.Page):
                 print(f"Error al seleccionar foto: {ex}")
                 mostrar_mensaje(f"Error al abrir selector: {ex}", ft.Colors.PINK_400)
 
-        # Limpiar
-        def limpiar(e=None):
+        async def limpiar(e=None):
             nonlocal selected_matricula, ruta_foto_seleccionada
             for tf in [txt_matricula, txt_apellido_paterno, txt_apellido_materno,
                        txt_nombres, txt_curp, txt_especialidad,
                        txt_telefono, txt_ciudad]:
                 tf.value = ""
-            txt_matricula.disabled  = False
-            txt_estado.value        = None
-            txt_disciplina.value    = None
-            selected_matricula      = None
-            ruta_foto_seleccionada  = ""
-            img_perfil.src          = IMG_DEFECTO
-            lbl_resultado.value     = ""
-            txt_matricula.focus()
+            txt_matricula.disabled = False
+            txt_estado.value = None
+            txt_disciplina.value = None
+            selected_matricula = None
+            ruta_foto_seleccionada = ""
+            img_perfil.src = IMG_DEFECTO
+            lbl_resultado.value = ""
+            await txt_matricula.focus()
             page.update()
-
-        # Cargar tabla
+            
         def cargar_alumnos(busqueda=""):
             contenedor_tabla.content.controls.clear()
             try:
@@ -530,7 +528,7 @@ async def main(page: ft.Page):
                                     mostrar_mensaje("Registro eliminado",
                                                     ft.Colors.PINK_400)
                                     cargar_alumnos(txt_buscador.value)
-                                    limpiar()
+                                    page.run_task(limpiar)  # Ejecutar limpiar async
 
                                 dialogo = ft.AlertDialog(
                                     modal=True,
@@ -627,7 +625,7 @@ async def main(page: ft.Page):
                 ))
                 temp_db.close()
                 mostrar_mensaje("Alumno registrado correctamente", ft.Colors.PURPLE)
-                limpiar()
+                page.run_task(limpiar)
                 cargar_alumnos(txt_buscador.value)
             except mysql.connector.IntegrityError:
                 mostrar_mensaje("Error: matricula o CURP ya existen.",
@@ -681,13 +679,14 @@ async def main(page: ft.Page):
                 ))
                 temp_db.close()
                 mostrar_mensaje("Alumno actualizado correctamente", ft.Colors.PURPLE)
-                limpiar()
+                page.run_task(limpiar)
                 cargar_alumnos(txt_buscador.value)
             except Exception as ex:
                 mostrar_mensaje(f"Error al actualizar: {ex}", ft.Colors.PINK_400)
 
-        def salir(e):
-            page.window.close()
+        # Salir (corregido: async y await close)
+        async def salir(e):
+            await page.window.close()
 
         txt_buscador.on_change = lambda _: cargar_alumnos(txt_buscador.value)
 
@@ -752,7 +751,6 @@ async def main(page: ft.Page):
                     ft.Button(
                         "Cargar Foto",
                         icon=ft.Icons.UPLOAD_FILE,
-                        # handler async directo - patron oficial Flet 0.85+
                         on_click=abrir_selector_foto,
                         bgcolor=ft.Colors.PURPLE_50,
                         color=ft.Colors.PURPLE,
