@@ -1,16 +1,13 @@
--- Crear base de datos
 CREATE DATABASE IF NOT EXISTS sistema_alumnos;
 USE sistema_alumnos;
 
--- Tabla de usuarios
-CREATE TABLE IF NOT EXISTS usuarios (
+CREATE TABLE usuarios (
     id INT PRIMARY KEY AUTO_INCREMENT,
     username VARCHAR(50) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL
 );
 
--- Tabla de alumnos
-CREATE TABLE IF NOT EXISTS alumnos (
+CREATE TABLE alumnos (
     matricula VARCHAR(20) PRIMARY KEY,
     apellido_paterno VARCHAR(50) NOT NULL,
     apellido_materno VARCHAR(50) NOT NULL,
@@ -24,11 +21,63 @@ CREATE TABLE IF NOT EXISTS alumnos (
     foto_url VARCHAR(500)
 );
 
--- Usuario de prueba (contraseña: admin123)
-INSERT INTO usuarios (username, password_hash) VALUES 
-('admin', '$2b$12$ejemplo...');
+INSERT INTO alumnos (
+    matricula,
+    apellido_paterno,
+    apellido_materno,
+    nombre,
+    curp,
+    especialidad,
+    telefono,
+    ciudad_origen,
+    estado,
+    disciplina,
+    foto_url
+)
+VALUES
+(
+    'A2024001',
+    'GARCIA',
+    'LOPEZ',
+    'JUAN CARLOS',
+    'GALJ010101HDFRRN01',
+    'INGENIERIA EN SISTEMAS',
+    '5551234567',
+    'GUADALAJARA',
+    'JALISCO',
+    'FUTBOL',
+    'https://randomuser.me/api/portraits/men/1.jpg'
+),
+(
+    'A2024006',
+    'PEREZ',
+    'DIAZ',
+    'VALENTINA',
+    'PEDV060606MDFRRN06',
+    'PSICOLOGIA',
+    '5556789012',
+    'TOLUCA',
+    'ESTADO DE MEXICO',
+    'GIMNASIA',
+    'https://randomuser.me/api/portraits/women/6.jpg'
+),
+(
+    'A2024007',
+    'GONZALEZ',
+    'TORRES',
+    'DIEGO',
+    'GOTD070707HDFRRN07',
+    'DERECHO',
+    '5557890123',
+    'LEON',
+    'GUANAJUATO',
+    'AJEDREZ',
+    'https://randomuser.me/api/portraits/men/7.jpg'
+);
 
--- Alumnos de prueba
-INSERT INTO alumnos (matricula, apellido_paterno, apellido_materno, nombre, curp, especialidad, telefono, ciudad_origen, estado, disciplina, foto_url) VALUES
-('A2024001', 'GARCIA', 'LOPEZ', 'JUAN', 'GALJ880101HDFRRN09', 'INFORMATICA', '5551234567', 'CHIHUAHUA', 'CHIHUAHUA', 'FUTBOL', 'https://randomuser.me/api/portraits/men/1.jpg'),
-('A2024002', 'MARTINEZ', 'RODRIGUEZ', 'MARIA', 'MARF950215HDFRRN08', 'CONTABILIDAD', '5558765432', 'MONTERREY', 'NUEVO LEON', 'BASQUETBOL', 'https://randomuser.me/api/portraits/women/1.jpg');
+INSERT INTO usuarios (username, password_hash)
+VALUES (
+    'admin',
+    '$2b$12$KIXqUiZEbL.n3sK6Z.7OcOj5n5K7Y8x9z0a1b2c3d4e5f6g7h8i9j0'
+);
+
