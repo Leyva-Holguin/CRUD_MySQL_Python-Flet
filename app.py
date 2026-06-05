@@ -2,11 +2,6 @@ import flet as ft
 import mysql.connector
 import bcrypt
 import re
-import os
-
-CARPETA_FOTOS = "fotos_perfil"
-if not os.path.exists(CARPETA_FOTOS):
-    os.makedirs(CARPETA_FOTOS)
 
 def main(page: ft.Page):
     page.title = "Sistema de Gestión de Alumnos"
