@@ -136,7 +136,7 @@ def main(page: ft.Page):
             return False
         if not matricula.isdigit():
             return False
-        if len(matricula) < 1 or len(matricula) > 14:
+        if len(matricula) != 14:
             return False
         return True
     
@@ -326,7 +326,7 @@ def main(page: ft.Page):
             width=220,
             input_filter=filtro_solo_numeros,
             max_length=14,
-            hint_text="Solo números"
+            hint_text="14 dígitos numéricos"
         )
         txt_apellido_paterno = ft.TextField(label="Apellido Paterno *", input_filter=filtro_letras, width=220)
         txt_apellido_materno = ft.TextField(label="Apellido Materno *", input_filter=filtro_letras, width=220)
@@ -368,7 +368,7 @@ def main(page: ft.Page):
             padding=20,
             border=ft.Border.all(1, ft.Colors.PURPLE_100),
         )
-        txt_buscador = ft.TextField(label="Buscar por matrícula o apellido", width=350, prefix_icon=ft.Icons.SEARCH)
+        txt_buscador = ft.TextField(label="Buscar por matrícula, apellido paterno o materno", width=350, prefix_icon=ft.Icons.SEARCH)
         
         def actualizar_vista_previa(e):
             if txt_foto_url.value and txt_foto_url.value.strip():
@@ -411,9 +411,12 @@ def main(page: ft.Page):
                                nombre, curp, telefono, especialidad,
                                estado, disciplina, foto_url, ciudad_origen
                         FROM alumnos
-                        WHERE matricula LIKE %s OR apellido_paterno LIKE %s
+                        WHERE matricula LIKE %s 
+                           OR apellido_paterno LIKE %s 
+                           OR apellido_materno LIKE %s
+                           OR CONCAT(apellido_paterno, ' ', apellido_materno) LIKE %s
                         ORDER BY matricula
-                    """, (f"%{busqueda}%", f"%{busqueda}%"))
+                    """, (f"%{busqueda}%", f"%{busqueda}%", f"%{busqueda}%", f"%{busqueda}%"))
                 else:
                     alumnos = ejecutar_query("""
                         SELECT matricula, apellido_paterno, apellido_materno,
@@ -527,7 +530,7 @@ def main(page: ft.Page):
                 return
             
             if not validar_matricula(txt_matricula.value):
-                mostrar_mensaje("Matrícula inválida: debe contener solo números y tener entre 1 y 14 dígitos", ft.Colors.PINK_400)
+                mostrar_mensaje("Matrícula inválida: debe contener solo números y tener exactamente 14 dígitos", ft.Colors.PINK_400)
                 return
                 
             if not all([txt_matricula.value, txt_apellido_paterno.value, txt_apellido_materno.value,
@@ -554,7 +557,7 @@ def main(page: ft.Page):
                         estado, disciplina, foto_url)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """, (
-                    txt_matricula.value.upper(),
+                    txt_matricula.value,
                     txt_apellido_paterno.value.upper(),
                     txt_apellido_materno.value.upper(),
                     txt_nombres.value.upper(),
