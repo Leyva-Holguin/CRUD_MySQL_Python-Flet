@@ -2,6 +2,7 @@ import flet as ft
 import mysql.connector
 import bcrypt
 import re
+import sys
 
 def main(page: ft.Page):
     page.title = "Sistema de Gestión de Alumnos"
@@ -113,7 +114,31 @@ def main(page: ft.Page):
         page.update()
     
     def validar_curp(curp):
-        return bool(re.match(r'^[A-Z]{4}\d{6}[A-Z]{6}\d{2}$', curp.upper()))
+        curp = curp.upper().strip()
+        patron = r'^[A-Z][AEIOU][A-Z]{2}\d{6}[A-Z]{6}\d{2}$'
+        patron_alternativo = r'^[A-ZÑ][AEIOUX][A-ZÑ]{2}\d{6}[A-ZÑ]{6}\d{2}$'
+        
+        if re.match(patron, curp) or re.match(patron_alternativo, curp):
+            try:
+                anno = int(curp[4:6])
+                mes = int(curp[6:8])
+                dia = int(curp[8:10])
+                if anno < 0 or anno > 99 or mes < 1 or mes > 12 or dia < 1 or dia > 31:
+                    return False
+                return True
+            except:
+                return False
+        return False
+    
+    def validar_matricula(matricula):
+        matricula = matricula.strip()
+        if not matricula:
+            return False
+        if not matricula.isdigit():
+            return False
+        if len(matricula) < 1 or len(matricula) > 14:
+            return False
+        return True
     
     def validar_telefono(tel):
         return bool(re.match(r'^\d{10}$', tel))
@@ -123,6 +148,28 @@ def main(page: ft.Page):
             return True
         extensiones_validas = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
         return any(url.lower().endswith(ext) for ext in extensiones_validas)
+    
+    especialidades = [
+        "Programación",
+        "Administración de Recursos Humanos",
+        "Secretariado Ejecutivo Bilingüe",
+        "Electrónica"
+    ]
+    
+    disciplinas = [
+        "FUTBOL", "BASQUETBOL", "VOLEIBOL", "ATLETISMO", "NATACION",
+        "TENIS", "BOXEO", "TAEKWONDO", "JUDO", "GIMNASIA", "CICLISMO",
+        "AJEDREZ", "NINGUNA"
+    ]
+    
+    estados_mexico = [
+        "AGUASCALIENTES", "BAJA CALIFORNIA", "BAJA CALIFORNIA SUR", "CAMPECHE",
+        "CHIAPAS", "CHIHUAHUA", "CIUDAD DE MEXICO", "COAHUILA", "COLIMA",
+        "DURANGO", "ESTADO DE MEXICO", "GUANAJUATO", "GUERRERO", "HIDALGO",
+        "JALISCO", "MICHOACAN", "MORELOS", "NAYARIT", "NUEVO LEON", "OAXACA",
+        "PUEBLA", "QUERETARO", "QUINTANA ROO", "SAN LUIS POTOSI", "SINALOA",
+        "SONORA", "TABASCO", "TAMAULIPAS", "TLAXCALA", "VERACRUZ", "YUCATAN", "ZACATECAS"
+    ]
     
     def mostrar_login():
         nonlocal current_user
@@ -271,37 +318,40 @@ def main(page: ft.Page):
         nonlocal selected_matricula
         selected_matricula = None
         
+        filtro_solo_numeros = ft.InputFilter(allow=True, regex_string=r"[0-9]", replacement_string="")
         filtro_letras = ft.InputFilter(allow=True, regex_string=r"[a-zA-ZáéíóúÁÉÍÓÚñÑ ]", replacement_string="")
-        filtro_numeros = ft.InputFilter(allow=True, regex_string=r"[0-9]", replacement_string="")
         
-        txt_matricula = ft.TextField(label="Matrícula *", width=220)
+        txt_matricula = ft.TextField(
+            label="Matrícula *", 
+            width=220,
+            input_filter=filtro_solo_numeros,
+            max_length=14,
+            hint_text="Solo números"
+        )
         txt_apellido_paterno = ft.TextField(label="Apellido Paterno *", input_filter=filtro_letras, width=220)
         txt_apellido_materno = ft.TextField(label="Apellido Materno *", input_filter=filtro_letras, width=220)
         txt_nombres = ft.TextField(label="Nombre(s) *", input_filter=filtro_letras, width=220)
-        txt_curp = ft.TextField(label="CURP *", max_length=18, width=220, capitalization=ft.TextCapitalization.CHARACTERS)
-        txt_especialidad = ft.TextField(label="Especialidad *", input_filter=filtro_letras, width=220)
-        txt_telefono = ft.TextField(label="Teléfono *", max_length=10, input_filter=filtro_numeros, width=220)
+        txt_curp = ft.TextField(
+            label="CURP *", 
+            max_length=18, 
+            width=220, 
+            capitalization=ft.TextCapitalization.CHARACTERS,
+            hint_text="Ej: GODE561231HDFRRN09"
+        )
+        
+        txt_especialidad = ft.Dropdown(
+            label="Especialidad *", 
+            width=220,
+            options=[ft.dropdown.Option(esp) for esp in especialidades]
+        )
+        
+        txt_telefono = ft.TextField(label="Teléfono *", max_length=10, input_filter=filtro_solo_numeros, width=220)
         txt_ciudad = ft.TextField(label="Ciudad de Origen *", input_filter=filtro_letras, width=220)
         txt_foto_url = ft.TextField(label="URL de la foto", width=220, prefix_icon=ft.Icons.LINK,
                                     hint_text="https://ejemplo.com/foto.jpg")
         
-        estados_mexico = [
-            "AGUASCALIENTES", "BAJA CALIFORNIA", "BAJA CALIFORNIA SUR", "CAMPECHE",
-            "CHIAPAS", "CHIHUAHUA", "CIUDAD DE MEXICO", "COAHUILA", "COLIMA",
-            "DURANGO", "ESTADO DE MEXICO", "GUANAJUATO", "GUERRERO", "HIDALGO",
-            "JALISCO", "MICHOACAN", "MORELOS", "NAYARIT", "NUEVO LEON", "OAXACA",
-            "PUEBLA", "QUERETARO", "QUINTANA ROO", "SAN LUIS POTOSI", "SINALOA",
-            "SONORA", "TABASCO", "TAMAULIPAS", "TLAXCALA", "VERACRUZ", "YUCATAN", "ZACATECAS"
-        ]
-        
         txt_estado = ft.Dropdown(label="Estado *", width=220, 
                                   options=[ft.dropdown.Option(estado) for estado in estados_mexico])
-        
-        disciplinas = [
-            "FUTBOL", "BASQUETBOL", "VOLEIBOL", "ATLETISMO", "NATACION",
-            "TENIS", "BOXEO", "TAEKWONDO", "JUDO", "GIMNASIA", "CICLISMO",
-            "AJEDREZ", "NINGUNA"
-        ]
         
         txt_disciplina = ft.Dropdown(label="Disciplina Deportiva", width=220,
                                       options=[ft.dropdown.Option(disciplina) for disciplina in disciplinas])
@@ -340,7 +390,7 @@ def main(page: ft.Page):
             txt_apellido_materno.value = ""
             txt_nombres.value = ""
             txt_curp.value = ""
-            txt_especialidad.value = ""
+            txt_especialidad.value = None
             txt_telefono.value = ""
             txt_ciudad.value = ""
             txt_foto_url.value = ""
@@ -475,14 +525,21 @@ def main(page: ft.Page):
             if txt_matricula.disabled:
                 mostrar_mensaje("Use Actualizar para modificar un alumno existente", ft.Colors.ORANGE)
                 return
+            
+            if not validar_matricula(txt_matricula.value):
+                mostrar_mensaje("Matrícula inválida: debe contener solo números y tener entre 1 y 14 dígitos", ft.Colors.PINK_400)
+                return
+                
             if not all([txt_matricula.value, txt_apellido_paterno.value, txt_apellido_materno.value,
                         txt_nombres.value, txt_curp.value, txt_especialidad.value,
                         txt_telefono.value, txt_ciudad.value, txt_estado.value]):
                 mostrar_mensaje("Complete todos los campos obligatorios (*)", ft.Colors.PINK_400)
                 return
+            
             if not validar_curp(txt_curp.value):
-                mostrar_mensaje("CURP inválida (formato: 4 letras, 6 números, 6 letras, 2 números)", ft.Colors.PINK_400)
+                mostrar_mensaje("CURP inválida. Formato: 4 letras + 6 números (fecha) + 6 letras + 2 dígitos", ft.Colors.PINK_400)
                 return
+                
             if not validar_telefono(txt_telefono.value):
                 mostrar_mensaje("Teléfono debe tener 10 dígitos", ft.Colors.PINK_400)
                 return
@@ -502,7 +559,7 @@ def main(page: ft.Page):
                     txt_apellido_materno.value.upper(),
                     txt_nombres.value.upper(),
                     txt_curp.value.upper(),
-                    txt_especialidad.value.upper(),
+                    txt_especialidad.value,
                     txt_telefono.value,
                     txt_ciudad.value.upper(),
                     txt_estado.value,
@@ -514,7 +571,10 @@ def main(page: ft.Page):
                 cargar_alumnos(txt_buscador.value)
             except Exception as ex:
                 if "Duplicate" in str(ex):
-                    mostrar_mensaje("Error: Matrícula o CURP ya existen", ft.Colors.PINK_400)
+                    if "curp" in str(ex).lower():
+                        mostrar_mensaje("Error: Esta CURP ya está registrada", ft.Colors.PINK_400)
+                    else:
+                        mostrar_mensaje("Error: Matrícula ya existe", ft.Colors.PINK_400)
                 else:
                     mostrar_mensaje(f"Error al guardar: {ex}", ft.Colors.PINK_400)
         
@@ -528,9 +588,11 @@ def main(page: ft.Page):
                         txt_ciudad.value, txt_estado.value]):
                 mostrar_mensaje("Complete todos los campos obligatorios (*)", ft.Colors.PINK_400)
                 return
+            
             if not validar_curp(txt_curp.value):
-                mostrar_mensaje("CURP inválida", ft.Colors.PINK_400)
+                mostrar_mensaje("CURP inválida. Formato: 4 letras + 6 números (fecha) + 6 letras + 2 dígitos", ft.Colors.PINK_400)
                 return
+                
             if not validar_telefono(txt_telefono.value):
                 mostrar_mensaje("Teléfono debe tener 10 dígitos", ft.Colors.PINK_400)
                 return
@@ -551,7 +613,7 @@ def main(page: ft.Page):
                     txt_apellido_materno.value.upper(),
                     txt_nombres.value.upper(),
                     txt_curp.value.upper(),
-                    txt_especialidad.value.upper(),
+                    txt_especialidad.value,
                     txt_telefono.value,
                     txt_ciudad.value.upper(),
                     txt_estado.value,
@@ -563,10 +625,21 @@ def main(page: ft.Page):
                 limpiar()
                 cargar_alumnos(txt_buscador.value)
             except Exception as ex:
-                mostrar_mensaje(f"Error al actualizar: {ex}", ft.Colors.PINK_400)
+                if "Duplicate" in str(ex) and "curp" in str(ex).lower():
+                    mostrar_mensaje("Error: Esta CURP ya está registrada por otro alumno", ft.Colors.PINK_400)
+                else:
+                    mostrar_mensaje(f"Error al actualizar: {ex}", ft.Colors.PINK_400)
         
         def salir(e):
-            page.window.close()
+            nonlocal conexion, cursor
+            try:
+                if cursor:
+                    cursor.close()
+                if conexion and conexion.is_connected():
+                    conexion.close()
+            except:
+                pass
+            sys.exit(0)
         
         txt_buscador.on_change = lambda _: cargar_alumnos(txt_buscador.value)
         
